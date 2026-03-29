@@ -1,27 +1,39 @@
 use crate::{
-    Channel, Config, PusherError, RequestError, Result, Token, auth, events, util, webhook::Webhook,
+    Channel, Config, SockudoError, RequestError, Result, Token, auth, events, util, webhook::Webhook,
 };
 use events::EventData;
 use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
 use sonic_rs::{JsonValueTrait, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-/// Main Pusher client
+/// Main Sockudo client
 #[derive(Clone)]
-pub struct Pusher {
-    inner: Arc<PusherInner>,
+pub struct Sockudo {
+    inner: Arc<SockudoInner>,
 }
 
-struct PusherInner {
+struct SockudoInner {
     config: Config,
     client: Client,
+    base_id: String,
+    publish_serial: AtomicU64,
+    auto_idempotency_key: bool,
 }
 
-impl Pusher {
-    /// Creates a new Pusher client
+/// Generates a compact base ID: 12 random bytes, base64url-encoded (no padding) = 16 chars.
+fn generate_base_id() -> String {
+    let mut bytes = [0u8; 12];
+    rand::fill(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+impl Sockudo {
+    /// Creates a new Sockudo client
     pub fn new(config: Config) -> Result<Self> {
         config.validate()?;
 
@@ -29,24 +41,32 @@ impl Pusher {
             .timeout(config.timeout())
             .pool_max_idle_per_host(config.pool_max_idle_per_host())
             .build()
-            .map_err(|e| PusherError::Config {
+            .map_err(|e| SockudoError::Config {
                 message: format!("Failed to build HTTP client: {}", e),
             })?;
 
+        let auto_idempotency_key = config.auto_idempotency_key();
+
         Ok(Self {
-            inner: Arc::new(PusherInner { config, client }),
+            inner: Arc::new(SockudoInner {
+                config,
+                client,
+                base_id: generate_base_id(),
+                publish_serial: AtomicU64::new(0),
+                auto_idempotency_key,
+            }),
         })
     }
 
-    /// Creates a Pusher client from URL
+    /// Creates a Sockudo client from URL
     pub fn from_url(url: &str, additional_config: Option<Config>) -> Result<Self> {
-        let parsed_url = url::Url::parse(url).map_err(|e| PusherError::Config {
-            message: format!("Invalid Pusher URL: {}", e),
+        let parsed_url = url::Url::parse(url).map_err(|e| SockudoError::Config {
+            message: format!("Invalid Sockudo URL: {}", e),
         })?;
 
         let auth_parts: Vec<&str> = parsed_url.username().split(':').collect();
         if auth_parts.len() != 2 {
-            return Err(PusherError::Config {
+            return Err(SockudoError::Config {
                 message: "Invalid auth format in URL. Expected KEY:SECRET".to_string(),
             });
         }
@@ -55,7 +75,7 @@ impl Pusher {
         let app_id = path_segments
             .last()
             .and_then(|s| if !s.is_empty() { Some(s) } else { None })
-            .ok_or_else(|| PusherError::Config {
+            .ok_or_else(|| SockudoError::Config {
                 message: "App ID not found in URL path".to_string(),
             })?;
 
@@ -63,7 +83,7 @@ impl Pusher {
             .app_id(*app_id)
             .key(auth_parts[0])
             .secret(auth_parts[1])
-            .host(parsed_url.host_str().unwrap_or("api.pusherapp.com"));
+            .host(parsed_url.host_str().unwrap_or("api.sockudo.io"));
 
         let builder = if parsed_url.scheme() == "https" {
             builder.use_tls(true)
@@ -84,6 +104,7 @@ impl Pusher {
                 .pool_max_idle_per_host(additional.pool_max_idle_per_host())
                 .enable_retry(additional.enable_retry())
                 .max_retries(additional.max_retries())
+                .auto_idempotency_key(additional.auto_idempotency_key())
                 .build()?
         } else {
             builder.build()?
@@ -97,7 +118,7 @@ impl Pusher {
         &self.inner.config
     }
 
-    /// Creates a new Pusher client for a specific cluster
+    /// Creates a new Sockudo client for a specific cluster
     pub fn for_cluster(&self, cluster: &str) -> Result<Self> {
         let config = Config::builder()
             .app_id(self.inner.config.app_id())
@@ -109,6 +130,7 @@ impl Pusher {
             .pool_max_idle_per_host(self.inner.config.pool_max_idle_per_host())
             .enable_retry(self.inner.config.enable_retry())
             .max_retries(self.inner.config.max_retries())
+            .auto_idempotency_key(self.inner.config.auto_idempotency_key())
             .build()?;
 
         Self::new(config)
@@ -151,12 +173,12 @@ impl Pusher {
             if let Some(id_str) = id.as_str() {
                 util::validate_user_id(id_str)?;
             } else {
-                return Err(PusherError::Validation {
+                return Err(SockudoError::Validation {
                     message: "User data ID must be a string".to_string(),
                 });
             }
         } else {
-            return Err(PusherError::Validation {
+            return Err(SockudoError::Validation {
                 message: "User data must contain an 'id' field".to_string(),
             });
         }
@@ -172,7 +194,7 @@ impl Pusher {
         data: D,
     ) -> Result<Response> {
         if event.len() > 200 {
-            return Err(PusherError::Validation {
+            return Err(SockudoError::Validation {
                 message: format!("Event name too long: '{}' (max 200 characters)", event),
             });
         }
@@ -191,7 +213,12 @@ impl Pusher {
         self.post(&path, &json!({})).await
     }
 
-    /// Triggers an event on channels
+    /// Triggers an event on channels.
+    ///
+    /// When `auto_idempotency_key` is enabled (default) and no explicit idempotency key
+    /// is provided in `params`, a deterministic key is generated as `{base_id}:{serial}`.
+    /// The serial is incremented before the request so that retries reuse the same key.
+    /// Built-in retry (max 3 attempts) is applied on network/5xx errors.
     pub async fn trigger<D: Into<EventData>>(
         &self,
         channels: &[Channel],
@@ -206,19 +233,19 @@ impl Pusher {
         }
 
         if event.len() > 200 {
-            return Err(PusherError::Validation {
+            return Err(SockudoError::Validation {
                 message: format!("Event name too long: '{}' (max 200 characters)", event),
             });
         }
 
         if channels.is_empty() {
-            return Err(PusherError::Validation {
+            return Err(SockudoError::Validation {
                 message: "Must specify at least one channel".to_string(),
             });
         }
 
         if channels.len() > 100 {
-            return Err(PusherError::Validation {
+            return Err(SockudoError::Validation {
                 message: format!(
                     "Can't trigger to more than 100 channels (got {})",
                     channels.len()
@@ -226,6 +253,7 @@ impl Pusher {
             });
         }
 
+        let params = self.maybe_inject_idempotency_key(params);
         events::trigger(self, channels, event, data, params.as_ref()).await
     }
 
@@ -244,14 +272,111 @@ impl Pusher {
         self.trigger(&channels?, event, data, params).await
     }
 
-    /// Triggers a batch of events
-    pub async fn trigger_batch(&self, batch: Vec<events::BatchEvent>) -> Result<Response> {
-        events::trigger_batch(self, batch).await
+    /// Triggers a batch of events.
+    ///
+    /// When `auto_idempotency_key` is enabled (default), each event in the batch that
+    /// lacks an explicit idempotency key gets one generated as `{base_id}:{serial}:{index}`.
+    /// The serial is incremented before the request so that retries reuse the same keys.
+    pub async fn trigger_batch(&self, mut batch: Vec<events::BatchEvent>) -> Result<Response> {
+        if self.inner.auto_idempotency_key {
+            let serial = self.inner.publish_serial.fetch_add(1, Ordering::SeqCst);
+            for (i, event) in batch.iter_mut().enumerate() {
+                if event.idempotency_key.is_none() {
+                    event.idempotency_key = Some(format!(
+                        "{}:{}:{}",
+                        self.inner.base_id, serial, i
+                    ));
+                }
+            }
+        }
+
+        events::trigger_batch(self, batch, None).await
+    }
+
+    /// Triggers a batch of events with an explicit idempotency key header.
+    ///
+    /// Per-event auto-idempotency keys are still injected for events that lack one.
+    pub async fn trigger_batch_with_idempotency_key(
+        &self,
+        mut batch: Vec<events::BatchEvent>,
+        idempotency_key: &str,
+    ) -> Result<Response> {
+        if self.inner.auto_idempotency_key {
+            let serial = self.inner.publish_serial.fetch_add(1, Ordering::SeqCst);
+            for (i, event) in batch.iter_mut().enumerate() {
+                if event.idempotency_key.is_none() {
+                    event.idempotency_key = Some(format!(
+                        "{}:{}:{}",
+                        self.inner.base_id, serial, i
+                    ));
+                }
+            }
+        }
+
+        events::trigger_batch(self, batch, Some(idempotency_key)).await
+    }
+
+    /// Returns whether automatic idempotency key generation is enabled.
+    pub fn auto_idempotency_key(&self) -> bool {
+        self.inner.auto_idempotency_key
+    }
+
+    /// Returns the base ID used for deterministic idempotency key generation.
+    pub fn base_id(&self) -> &str {
+        &self.inner.base_id
+    }
+
+    /// Returns the current publish serial (the next serial that will be used).
+    pub fn publish_serial(&self) -> u64 {
+        self.inner.publish_serial.load(Ordering::SeqCst)
+    }
+
+    /// Injects an auto-generated idempotency key into params if auto mode is enabled
+    /// and no explicit key is already set. Increments the serial before the request
+    /// so that retries reuse the same assigned key.
+    fn maybe_inject_idempotency_key(
+        &self,
+        params: Option<events::TriggerParams>,
+    ) -> Option<events::TriggerParams> {
+        if !self.inner.auto_idempotency_key {
+            return params;
+        }
+
+        let has_explicit_key = params
+            .as_ref()
+            .and_then(|p| p.idempotency_key.as_ref())
+            .is_some();
+
+        if has_explicit_key {
+            return params;
+        }
+
+        let serial = self.inner.publish_serial.fetch_add(1, Ordering::SeqCst);
+        let key = format!("{}:{}", self.inner.base_id, serial);
+
+        let mut p = params.unwrap_or_default();
+        p.idempotency_key = Some(key);
+        Some(p)
     }
 
     /// Makes a POST request
     pub async fn post(&self, path: &str, body: &Value) -> Result<Response> {
-        self.send_request("POST", path, Some(body), None).await
+        self.send_request("POST", path, Some(body), None, None).await
+    }
+
+    /// Makes a POST request with extra headers
+    pub async fn post_with_headers(
+        &self,
+        path: &str,
+        body: &Value,
+        extra_headers: &HashMap<String, String>,
+    ) -> Result<Response> {
+        let headers = if extra_headers.is_empty() {
+            None
+        } else {
+            Some(extra_headers)
+        };
+        self.send_request("POST", path, Some(body), None, headers).await
     }
 
     /// Makes a GET request
@@ -260,7 +385,7 @@ impl Pusher {
         path: &str,
         params: Option<&BTreeMap<String, String>>,
     ) -> Result<Response> {
-        self.send_request("GET", path, None, params).await
+        self.send_request("GET", path, None, params, None).await
     }
 
     /// Creates a webhook from request data
@@ -274,7 +399,7 @@ impl Pusher {
             self.inner
                 .config
                 .encryption_master_key()
-                .ok_or_else(|| PusherError::Encryption {
+                .ok_or_else(|| SockudoError::Encryption {
                     message: "Encryption master key not set".to_string(),
                 })?;
 
@@ -306,6 +431,7 @@ impl Pusher {
         path: &str,
         body: Option<&Value>,
         params: Option<&BTreeMap<String, String>>,
+        extra_headers: Option<&HashMap<String, String>>,
     ) -> Result<Response> {
         let full_path = self.inner.config.prefix_path(path);
         let body_str = body.map(|b| sonic_rs::to_string(b)).transpose()?;
@@ -339,7 +465,7 @@ impl Pusher {
                 "GET" => self.inner.client.get(&url),
                 "POST" => self.inner.client.post(&url),
                 _ => {
-                    return Err(PusherError::Request(RequestError::new(
+                    return Err(SockudoError::Request(RequestError::new(
                         format!("Unsupported HTTP method: {}", method),
                         &url,
                         None,
@@ -354,8 +480,14 @@ impl Pusher {
                     .body(body_str.clone());
             }
 
+            if let Some(headers) = extra_headers {
+                for (key, value) in headers {
+                    request = request.header(key, value);
+                }
+            }
+
             let response = request
-                .header("X-Pusher-Library", "pushers/1.4.2")
+                .header("X-Sockudo-Library", "sockudo-http/1.5.0")
                 .send()
                 .await;
 
@@ -370,7 +502,7 @@ impl Pusher {
 
                     // Don't retry on 4xx errors (client errors)
                     if status >= 400 && status < 500 {
-                        return Err(PusherError::Request(RequestError::new(
+                        return Err(SockudoError::Request(RequestError::new(
                             format!("HTTP {}", status),
                             &url,
                             Some(status),
@@ -380,7 +512,7 @@ impl Pusher {
 
                     // Retry on 5xx errors if enabled
                     if attempt >= max_attempts {
-                        return Err(PusherError::Request(RequestError::new(
+                        return Err(SockudoError::Request(RequestError::new(
                             format!("HTTP {} after {} attempts", status, attempt),
                             &url,
                             Some(status),
@@ -391,7 +523,7 @@ impl Pusher {
                 Err(e) => {
                     // Retry on network errors if enabled
                     if attempt >= max_attempts {
-                        return Err(PusherError::Http(e));
+                        return Err(SockudoError::Http(e));
                     }
                 }
             }
@@ -403,7 +535,7 @@ impl Pusher {
     }
 }
 
-/// Creates a signed query string for Pusher API requests
+/// Creates a signed query string for Sockudo API requests
 fn create_signed_query_string(
     token: &Token,
     method: &str,
@@ -438,9 +570,9 @@ fn create_signed_query_string(
     format!("{}&auth_signature={}", query_string, signature)
 }
 
-impl std::fmt::Debug for Pusher {
+impl std::fmt::Debug for Sockudo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Pusher")
+        f.debug_struct("Sockudo")
             .field("config", &self.inner.config)
             .finish()
     }
@@ -451,18 +583,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pusher_creation() {
+    fn test_sockudo_creation() {
         let config = Config::new("123", "key", "secret");
-        let pusher = Pusher::new(config).unwrap();
-        assert_eq!(pusher.config().app_id(), "123");
+        let sockudo = Sockudo::new(config).unwrap();
+        assert_eq!(sockudo.config().app_id(), "123");
     }
 
     #[tokio::test]
     async fn test_authorize_channel() {
         let config = Config::new("123", "key", "secret");
-        let pusher = Pusher::new(config).unwrap();
+        let sockudo = Sockudo::new(config).unwrap();
 
-        let result = pusher.authorize_channel(
+        let result = sockudo.authorize_channel(
             "123.456",
             &Channel::from_string("test-channel").unwrap(),
             None,
@@ -473,9 +605,9 @@ mod tests {
     #[test]
     fn test_for_cluster() {
         let config = Config::new("123", "key", "secret");
-        let pusher = Pusher::new(config).unwrap();
+        let sockudo = Sockudo::new(config).unwrap();
 
-        let eu_pusher = pusher.for_cluster("eu").unwrap();
-        assert_eq!(eu_pusher.config().host(), "api-eu.pusher.com");
+        let eu_sockudo = sockudo.for_cluster("eu").unwrap();
+        assert_eq!(eu_sockudo.config().host(), "api-eu.sockudo.io");
     }
 }

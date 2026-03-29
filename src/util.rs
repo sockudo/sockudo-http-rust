@@ -22,7 +22,7 @@ pub fn to_ordered_array(map: &BTreeMap<String, String>) -> Vec<String> {
 }
 
 /// Calculates MD5 hash of the input
-/// Note: MD5 is used here for compatibility with Pusher's protocol, not for security
+/// Note: MD5 is used here for compatibility with the protocol, not for security
 pub fn get_md5(body: &str) -> String {
     let digest = md5::compute(body.as_bytes());
     hex::encode(digest.as_ref())
@@ -56,7 +56,7 @@ pub fn validate_channel(channel: &str) -> crate::Result<()> {
 /// Validates a socket ID
 pub fn validate_socket_id(socket_id: &str) -> crate::Result<()> {
     if !SOCKET_ID_PATTERN.is_match(socket_id) {
-        return Err(crate::PusherError::Validation {
+        return Err(crate::SockudoError::Validation {
             message: format!(
                 "Invalid socket id: '{}'. Must be in format: \\d+.\\d+",
                 socket_id
@@ -69,19 +69,19 @@ pub fn validate_socket_id(socket_id: &str) -> crate::Result<()> {
 /// Validates a user ID
 pub fn validate_user_id(user_id: &str) -> crate::Result<()> {
     if user_id.is_empty() {
-        return Err(crate::PusherError::Validation {
+        return Err(crate::SockudoError::Validation {
             message: "User ID cannot be empty".to_string(),
         });
     }
 
     if user_id.len() > 200 {
-        return Err(crate::PusherError::Validation {
+        return Err(crate::SockudoError::Validation {
             message: format!("User ID too long: '{}' (max 200 characters)", user_id),
         });
     }
 
     if !USER_ID_PATTERN.is_match(user_id) {
-        return Err(crate::PusherError::Validation {
+        return Err(crate::SockudoError::Validation {
             message: format!(
                 "Invalid user ID: '{}'. Must match pattern: [a-zA-Z0-9_\\-=@,.;]+",
                 user_id

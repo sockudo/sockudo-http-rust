@@ -1,8 +1,8 @@
-use crate::{PusherError, Result, Token, WebhookError};
+use crate::{SockudoError, Result, Token, WebhookError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
-/// Webhook for validating and accessing Pusher webhook data
+/// Webhook for validating and accessing Sockudo webhook data
 #[derive(Debug)]
 pub struct Webhook {
     token: Token,
@@ -13,7 +13,7 @@ pub struct Webhook {
     data: Option<WebhookData>,
 }
 
-/// Webhook data structure matching Pusher's format
+/// Webhook data structure matching Sockudo's format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookData {
     /// The timestamp of the webhook in milliseconds
@@ -62,8 +62,8 @@ impl Webhook {
             .map(|(k, v)| (k.to_lowercase(), v.clone()))
             .collect();
 
-        let key = normalized_headers.get("x-pusher-key").cloned();
-        let signature = normalized_headers.get("x-pusher-signature").cloned();
+        let key = normalized_headers.get("x-sockudo-key").cloned();
+        let signature = normalized_headers.get("x-sockudo-signature").cloned();
         let content_type = normalized_headers.get("content-type").cloned();
 
         let data = if Self::validate_content_type(&content_type) {
@@ -128,7 +128,7 @@ impl Webhook {
     /// Gets the parsed webhook data
     pub fn get_data(&self) -> Result<&WebhookData> {
         self.data.as_ref().ok_or_else(|| {
-            PusherError::Webhook(WebhookError::new(
+            SockudoError::Webhook(WebhookError::new(
                 "Invalid webhook body",
                 self.content_type.clone(),
                 &self.body,
@@ -152,7 +152,7 @@ impl Webhook {
     pub fn get_time(&self) -> Result<std::time::SystemTime> {
         let time_ms = self.get_data()?.time_ms;
         if time_ms < 0 {
-            return Err(PusherError::Webhook(WebhookError::new(
+            return Err(SockudoError::Webhook(WebhookError::new(
                 "Invalid negative timestamp",
                 self.content_type.clone(),
                 &self.body,
@@ -391,8 +391,8 @@ mod tests {
 
         let mut headers = BTreeMap::new();
         headers.insert("content-type".to_string(), "application/json".to_string());
-        headers.insert("x-pusher-key".to_string(), "test_key".to_string());
-        headers.insert("x-pusher-signature".to_string(), signature);
+        headers.insert("x-sockudo-key".to_string(), "test_key".to_string());
+        headers.insert("x-sockudo-signature".to_string(), signature);
 
         let webhook = Webhook::new(&token, &headers, body);
         assert!(webhook.is_valid(None));

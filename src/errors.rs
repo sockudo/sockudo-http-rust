@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum PusherError {
+pub enum SockudoError {
     #[error("Request error: {0}")]
     Request(#[from] RequestError),
 

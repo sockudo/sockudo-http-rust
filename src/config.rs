@@ -1,9 +1,9 @@
-use crate::{PusherError, Result, Token};
+use crate::{SockudoError, Result, Token};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::time::Duration;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-/// Configuration for the Pusher client
+/// Configuration for the Sockudo client
 #[derive(Clone, Debug)]
 pub struct Config {
     scheme: String,
@@ -16,6 +16,7 @@ pub struct Config {
     pool_max_idle_per_host: usize,
     enable_retry: bool,
     max_retries: u32,
+    auto_idempotency_key: bool,
 }
 
 /// Wrapper for encryption key that ensures it's zeroed on drop
@@ -51,20 +52,20 @@ impl Config {
     /// Validates the configuration
     pub fn validate(&self) -> Result<()> {
         if self.app_id.is_empty() {
-            return Err(PusherError::Config {
+            return Err(SockudoError::Config {
                 message: "App ID cannot be empty".to_string(),
             });
         }
 
         if self.token.key.is_empty() {
-            return Err(PusherError::Config {
+            return Err(SockudoError::Config {
                 message: "App key cannot be empty".to_string(),
             });
         }
 
         if let Some(ref key) = self.encryption_master_key {
             if key.0.len() != 32 {
-                return Err(PusherError::Config {
+                return Err(SockudoError::Config {
                     message: format!("Encryption key must be 32 bytes, got {}", key.0.len()),
                 });
             }
@@ -114,6 +115,10 @@ impl Config {
         self.max_retries
     }
 
+    pub fn auto_idempotency_key(&self) -> bool {
+        self.auto_idempotency_key
+    }
+
     /// Gets the base URL
     pub fn base_url(&self) -> String {
         let port = match self.port {
@@ -129,7 +134,7 @@ impl Config {
     }
 }
 
-/// Builder for Pusher configuration
+/// Builder for Sockudo configuration
 #[derive(Default)]
 pub struct ConfigBuilder {
     scheme: Option<String>,
@@ -143,6 +148,7 @@ pub struct ConfigBuilder {
     pool_max_idle_per_host: Option<usize>,
     enable_retry: Option<bool>,
     max_retries: Option<u32>,
+    auto_idempotency_key: Option<bool>,
 }
 
 impl ConfigBuilder {
@@ -166,7 +172,7 @@ impl ConfigBuilder {
 
     /// Sets the cluster
     pub fn cluster(mut self, cluster: impl AsRef<str>) -> Self {
-        self.host = Some(format!("api-{}.pusher.com", cluster.as_ref()));
+        self.host = Some(format!("api-{}.sockudo.io", cluster.as_ref()));
         self
     }
 
@@ -197,7 +203,7 @@ impl ConfigBuilder {
     /// Sets the encryption master key from raw bytes
     pub fn encryption_master_key(mut self, key: Vec<u8>) -> Result<Self> {
         if key.len() != 32 {
-            return Err(PusherError::Config {
+            return Err(SockudoError::Config {
                 message: format!("Encryption key must be 32 bytes, got {}", key.len()),
             });
         }
@@ -209,7 +215,7 @@ impl ConfigBuilder {
     pub fn encryption_master_key_base64(self, key_base64: impl AsRef<str>) -> Result<Self> {
         let decoded = BASE64
             .decode(key_base64.as_ref())
-            .map_err(|e| PusherError::Config {
+            .map_err(|e| SockudoError::Config {
                 message: format!("Invalid base64 encryption key: {}", e),
             })?;
 
@@ -234,23 +240,32 @@ impl ConfigBuilder {
         self
     }
 
+    /// Enables or disables automatic deterministic idempotency key generation.
+    /// When enabled (default), each `trigger()` / `trigger_batch()` call that lacks
+    /// an explicit idempotency key will receive one derived from the client's session ID
+    /// and a monotonically increasing publish serial.
+    pub fn auto_idempotency_key(mut self, enable: bool) -> Self {
+        self.auto_idempotency_key = Some(enable);
+        self
+    }
+
     /// Builds the configuration
     pub fn build(self) -> Result<Config> {
-        let app_id = self.app_id.ok_or_else(|| PusherError::Config {
+        let app_id = self.app_id.ok_or_else(|| SockudoError::Config {
             message: "App ID is required".to_string(),
         })?;
 
-        let key = self.key.ok_or_else(|| PusherError::Config {
+        let key = self.key.ok_or_else(|| SockudoError::Config {
             message: "App key is required".to_string(),
         })?;
 
-        let secret = self.secret.ok_or_else(|| PusherError::Config {
+        let secret = self.secret.ok_or_else(|| SockudoError::Config {
             message: "App secret is required".to_string(),
         })?;
 
         let config = Config {
             scheme: self.scheme.unwrap_or_else(|| "https".to_string()),
-            host: self.host.unwrap_or_else(|| "api.pusherapp.com".to_string()),
+            host: self.host.unwrap_or_else(|| "api.sockudo.io".to_string()),
             port: self.port,
             app_id,
             token: Token::new(key, secret),
@@ -259,6 +274,7 @@ impl ConfigBuilder {
             pool_max_idle_per_host: self.pool_max_idle_per_host.unwrap_or(10),
             enable_retry: self.enable_retry.unwrap_or(true),
             max_retries: self.max_retries.unwrap_or(3),
+            auto_idempotency_key: self.auto_idempotency_key.unwrap_or(true),
         };
 
         config.validate()?;
@@ -283,7 +299,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(config.app_id(), "123");
-        assert_eq!(config.host(), "api-eu.pusher.com");
+        assert_eq!(config.host(), "api-eu.sockudo.io");
         assert_eq!(config.timeout(), Duration::from_secs(10));
         assert!(!config.enable_retry());
     }

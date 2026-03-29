@@ -1,4 +1,4 @@
-use crate::{PusherError, Result};
+use crate::{SockudoError, Result};
 use std::fmt;
 use std::str::FromStr;
 
@@ -130,7 +130,7 @@ impl fmt::Display for Channel {
 }
 
 impl FromStr for Channel {
-    type Err = PusherError;
+    type Err = SockudoError;
 
     fn from_str(s: &str) -> Result<Self> {
         Channel::from_string(s)
@@ -171,19 +171,19 @@ static CHANNEL_NAME_PATTERN: LazyLock<Regex> =
 
 fn validate_channel_name(name: &str) -> Result<()> {
     if name.is_empty() {
-        return Err(PusherError::Validation {
+        return Err(SockudoError::Validation {
             message: "Channel name cannot be empty".to_string(),
         });
     }
 
     if name.len() > 200 {
-        return Err(PusherError::Validation {
+        return Err(SockudoError::Validation {
             message: format!("Channel name too long: '{}' (max 200 characters)", name),
         });
     }
 
     if !CHANNEL_NAME_PATTERN.is_match(name) {
-        return Err(PusherError::Validation {
+        return Err(SockudoError::Validation {
             message: format!(
                 "Invalid channel name: '{}'. Must match pattern: [A-Za-z0-9_\\-=@,.;]+",
                 name

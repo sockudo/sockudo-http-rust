@@ -1,9 +1,23 @@
-use crate::{Channel, Pusher, PusherError, Result};
+use crate::{Channel, Sockudo, SockudoError, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sonic_rs::{Value, json};
 use std::collections::HashMap;
 use std::fmt;
+
+/// V2 extras for publish events.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MessageExtras {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub echo: Option<bool>,
+}
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
 #[cfg(all(feature = "encryption", feature = "sodiumoxide"))]
 use std::sync::Once;
@@ -49,7 +63,7 @@ impl EventData {
     /// Gets the event data as a JSON value
     pub fn as_json(&self) -> Result<Value> {
         match self {
-            EventData::String(s) => sonic_rs::from_str(s).map_err(|e| PusherError::Json(e)),
+            EventData::String(s) => sonic_rs::from_str(s).map_err(|e| SockudoError::Json(e)),
             EventData::Json(v) => Ok(v.clone()),
         }
     }
@@ -79,6 +93,13 @@ impl From<Value> for EventData {
     }
 }
 
+/// Generates a random idempotency key (16-char base64url string from 12 random bytes).
+pub fn generate_idempotency_key() -> String {
+    let mut bytes = [0u8; 12];
+    rand::fill(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
 /// Event data for triggering
 #[derive(Debug, Serialize)]
 pub struct Event {
@@ -91,6 +112,10 @@ pub struct Event {
     pub info: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extras: Option<MessageExtras>,
 }
 
 /// Batch event data
@@ -105,6 +130,10 @@ pub struct BatchEvent {
     pub info: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extras: Option<MessageExtras>,
 }
 
 impl BatchEvent {
@@ -121,6 +150,8 @@ impl BatchEvent {
             socket_id: None,
             info: None,
             tags: None,
+            idempotency_key: None,
+            extras: None,
         }
     }
 
@@ -141,6 +172,36 @@ impl BatchEvent {
         self.tags = Some(tags);
         self
     }
+
+    /// Sets the idempotency key for deduplication
+    pub fn with_idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
+        self
+    }
+
+    /// Sets a randomly generated idempotency key (UUID v4)
+    pub fn with_auto_idempotency_key(mut self) -> Self {
+        self.idempotency_key = Some(generate_idempotency_key());
+        self
+    }
+
+    /// Sets the V2 extras
+    pub fn with_extras(mut self, extras: MessageExtras) -> Self {
+        self.extras = Some(extras);
+        self
+    }
+
+    /// Sets the ephemeral flag in extras
+    pub fn with_ephemeral(mut self, ephemeral: bool) -> Self {
+        self.extras.get_or_insert_with(MessageExtras::default).ephemeral = Some(ephemeral);
+        self
+    }
+
+    /// Sets the echo flag in extras
+    pub fn with_echo(mut self, echo: bool) -> Self {
+        self.extras.get_or_insert_with(MessageExtras::default).echo = Some(echo);
+        self
+    }
 }
 
 /// Parameters for triggering events
@@ -149,6 +210,8 @@ pub struct TriggerParams {
     pub socket_id: Option<String>,
     pub info: Option<String>,
     pub tags: Option<HashMap<String, String>>,
+    pub idempotency_key: Option<String>,
+    pub extras: Option<MessageExtras>,
 }
 
 impl TriggerParams {
@@ -164,6 +227,8 @@ pub struct TriggerParamsBuilder {
     socket_id: Option<String>,
     info: Option<String>,
     tags: Option<HashMap<String, String>>,
+    idempotency_key: Option<String>,
+    extras: Option<MessageExtras>,
 }
 
 impl TriggerParamsBuilder {
@@ -185,41 +250,73 @@ impl TriggerParamsBuilder {
         self
     }
 
+    /// Sets the idempotency key for deduplication
+    pub fn idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
+        self
+    }
+
+    /// Sets a randomly generated idempotency key (UUID v4)
+    pub fn auto_idempotency_key(mut self) -> Self {
+        self.idempotency_key = Some(generate_idempotency_key());
+        self
+    }
+
+    /// Sets the V2 extras
+    pub fn extras(mut self, extras: MessageExtras) -> Self {
+        self.extras = Some(extras);
+        self
+    }
+
+    /// Sets the ephemeral flag in extras
+    pub fn with_ephemeral(mut self, ephemeral: bool) -> Self {
+        self.extras.get_or_insert_with(MessageExtras::default).ephemeral = Some(ephemeral);
+        self
+    }
+
+    /// Sets the echo flag in extras
+    pub fn with_echo(mut self, echo: bool) -> Self {
+        self.extras.get_or_insert_with(MessageExtras::default).echo = Some(echo);
+        self
+    }
+
     /// Builds the TriggerParams
     pub fn build(self) -> TriggerParams {
         TriggerParams {
             socket_id: self.socket_id,
             info: self.info,
             tags: self.tags,
+            idempotency_key: self.idempotency_key,
+            extras: self.extras,
         }
     }
 }
 
 /// Encrypts data for encrypted channels
 #[cfg(feature = "encryption")]
-fn encrypt(pusher: &Pusher, channel: &str, data: &EventData) -> Result<String> {
+fn encrypt(sockudo: &Sockudo, channel: &str, data: &EventData) -> Result<String> {
     #[cfg(feature = "sodiumoxide")]
     {
-        encrypt_sodiumoxide(pusher, channel, data)
+        encrypt_sodiumoxide(sockudo, channel, data)
     }
 
     #[cfg(not(feature = "sodiumoxide"))]
     {
-        encrypt_pure_rust(pusher, channel, data)
+        encrypt_pure_rust(sockudo, channel, data)
     }
 }
 
 /// Encrypts data using sodiumoxide
 #[cfg(all(feature = "encryption", feature = "sodiumoxide"))]
-fn encrypt_sodiumoxide(pusher: &Pusher, channel: &str, data: &EventData) -> Result<String> {
+fn encrypt_sodiumoxide(sockudo: &Sockudo, channel: &str, data: &EventData) -> Result<String> {
     init_sodium()?;
 
     // Ensure master key is present
     let _master_key =
-        pusher
+        sockudo
             .config()
             .encryption_master_key()
-            .ok_or_else(|| PusherError::Encryption {
+            .ok_or_else(|| SockudoError::Encryption {
                 message: "Set encryptionMasterKey before triggering events on encrypted channels"
                     .to_string(),
             })?;
@@ -229,18 +326,18 @@ fn encrypt_sodiumoxide(pusher: &Pusher, channel: &str, data: &EventData) -> Resu
         sodiumoxide::randombytes::randombytes(sodiumoxide::crypto::secretbox::NONCEBYTES);
     let nonce =
         sodiumoxide::crypto::secretbox::Nonce::from_slice(&nonce_bytes).ok_or_else(|| {
-            PusherError::Encryption {
+            SockudoError::Encryption {
                 message: "Failed to create nonce from random bytes".to_string(),
             }
         })?;
 
     // Get channel shared secret
-    let shared_secret_bytes = pusher.channel_shared_secret(channel)?;
+    let shared_secret_bytes = sockudo.channel_shared_secret(channel)?;
 
     // Convert to cryptographic Key type
     let key =
         sodiumoxide::crypto::secretbox::Key::from_slice(&shared_secret_bytes).ok_or_else(|| {
-            PusherError::Encryption {
+            SockudoError::Encryption {
                 message: format!(
                     "Channel shared secret must be {} bytes long, but was {} bytes.",
                     sodiumoxide::crypto::secretbox::KEYBYTES,
@@ -267,7 +364,7 @@ fn encrypt_sodiumoxide(pusher: &Pusher, channel: &str, data: &EventData) -> Resu
 
 /// Encrypts data using pure Rust crypto libraries
 #[cfg(all(feature = "encryption", not(feature = "sodiumoxide")))]
-fn encrypt_pure_rust(pusher: &Pusher, channel: &str, data: &EventData) -> Result<String> {
+fn encrypt_pure_rust(sockudo: &Sockudo, channel: &str, data: &EventData) -> Result<String> {
     use chacha20poly1305::{
         ChaCha20Poly1305, Nonce,
         aead::{Aead, AeadCore, KeyInit, OsRng},
@@ -275,20 +372,20 @@ fn encrypt_pure_rust(pusher: &Pusher, channel: &str, data: &EventData) -> Result
 
     // Ensure master key is present
     let _master_key =
-        pusher
+        sockudo
             .config()
             .encryption_master_key()
-            .ok_or_else(|| PusherError::Encryption {
+            .ok_or_else(|| SockudoError::Encryption {
                 message: "Set encryptionMasterKey before triggering events on encrypted channels"
                     .to_string(),
             })?;
 
     // Get channel shared secret
-    let shared_secret_bytes = pusher.channel_shared_secret(channel)?;
+    let shared_secret_bytes = sockudo.channel_shared_secret(channel)?;
 
     // Create cipher
     let cipher = ChaCha20Poly1305::new_from_slice(&shared_secret_bytes).map_err(|_| {
-        PusherError::Encryption {
+        SockudoError::Encryption {
             message: "Failed to create cipher from shared secret".to_string(),
         }
     })?;
@@ -300,7 +397,7 @@ fn encrypt_pure_rust(pusher: &Pusher, channel: &str, data: &EventData) -> Result
     let data_string = data.to_string();
     let ciphertext = cipher
         .encrypt(&nonce, data_string.as_bytes())
-        .map_err(|_| PusherError::Encryption {
+        .map_err(|_| SockudoError::Encryption {
             message: "Encryption failed".to_string(),
         })?;
 
@@ -315,15 +412,15 @@ fn encrypt_pure_rust(pusher: &Pusher, channel: &str, data: &EventData) -> Result
 
 /// Stub function when encryption is disabled
 #[cfg(not(feature = "encryption"))]
-fn encrypt(_pusher: &Pusher, _channel: &str, _data: &EventData) -> Result<String> {
-    Err(PusherError::Encryption {
+fn encrypt(_sockudo: &Sockudo, _channel: &str, _data: &EventData) -> Result<String> {
+    Err(SockudoError::Encryption {
         message: "Encryption support is not enabled. Enable the 'encryption' feature to use encrypted channels.".to_string(),
     })
 }
 
 /// Triggers an event on channels
 pub async fn trigger<D: Into<EventData>>(
-    pusher: &Pusher,
+    sockudo: &Sockudo,
     channels: &[Channel],
     event_name: impl AsRef<str>,
     data: D,
@@ -334,7 +431,7 @@ pub async fn trigger<D: Into<EventData>>(
 
     // Validate event name
     if event_name.len() > 200 {
-        return Err(PusherError::Validation {
+        return Err(SockudoError::Validation {
             message: format!("Event name too long: '{}' (max 200 characters)", event_name),
         });
     }
@@ -342,10 +439,18 @@ pub async fn trigger<D: Into<EventData>>(
     // Convert channels to strings
     let channel_strings: Vec<String> = channels.iter().map(|c| c.full_name()).collect();
 
+    // Extract idempotency key for the header
+    let idempotency_key = params.and_then(|p| p.idempotency_key.clone());
+
+    let mut extra_headers = HashMap::new();
+    if let Some(ref key) = idempotency_key {
+        extra_headers.insert("X-Idempotency-Key".to_string(), key.clone());
+    }
+
     if channels.len() == 1 && channels[0].is_encrypted() {
         #[cfg(feature = "encryption")]
         {
-            let encrypted_data = encrypt(pusher, &channel_strings[0], &data)?;
+            let encrypted_data = encrypt(sockudo, &channel_strings[0], &data)?;
 
             let mut event = Event {
                 name: event_name.to_string(),
@@ -354,21 +459,24 @@ pub async fn trigger<D: Into<EventData>>(
                 socket_id: None,
                 info: None,
                 tags: None,
+                idempotency_key: idempotency_key.clone(),
+                extras: None,
             };
 
             if let Some(params) = params {
                 event.socket_id = params.socket_id.clone();
                 event.info = params.info.clone();
                 event.tags = params.tags.clone();
+                event.extras = params.extras.clone();
             }
 
             let event_json = sonic_rs::to_value(&event)?;
-            pusher.post("/events", &event_json).await
+            sockudo.post_with_headers("/events", &event_json, &extra_headers).await
         }
 
         #[cfg(not(feature = "encryption"))]
         {
-            Err(PusherError::Encryption {
+            Err(SockudoError::Encryption {
                 message: "Encryption support is not enabled. Enable the 'encryption' feature to use encrypted channels.".to_string(),
             })
         }
@@ -376,7 +484,7 @@ pub async fn trigger<D: Into<EventData>>(
         // Check for encrypted channels in multi-channel trigger
         for channel in channels {
             if channel.is_encrypted() {
-                return Err(PusherError::Validation {
+                return Err(SockudoError::Validation {
                     message:
                         "You cannot trigger to multiple channels when using encrypted channels"
                             .to_string(),
@@ -391,22 +499,25 @@ pub async fn trigger<D: Into<EventData>>(
             socket_id: None,
             info: None,
             tags: None,
+            idempotency_key: idempotency_key.clone(),
+            extras: None,
         };
 
         if let Some(params) = params {
             event.socket_id = params.socket_id.clone();
             event.info = params.info.clone();
             event.tags = params.tags.clone();
+            event.extras = params.extras.clone();
         }
 
         let event_json = sonic_rs::to_value(&event)?;
-        pusher.post("/events", &event_json).await
+        sockudo.post_with_headers("/events", &event_json, &extra_headers).await
     }
 }
 
 /// Triggers an event on channel names (backward compatibility)
 pub async fn trigger_on_channels<D: Into<EventData>>(
-    pusher: &Pusher,
+    sockudo: &Sockudo,
     channels: &[String],
     event_name: impl AsRef<str>,
     data: D,
@@ -414,23 +525,24 @@ pub async fn trigger_on_channels<D: Into<EventData>>(
 ) -> Result<reqwest::Response> {
     let channels: Result<Vec<Channel>> = channels.iter().map(|c| Channel::from_string(c)).collect();
     let channels = channels?;
-    trigger(pusher, &channels, event_name, data, params).await
+    trigger(sockudo, &channels, event_name, data, params).await
 }
 
 /// Triggers a batch of events
 pub async fn trigger_batch(
-    pusher: &Pusher,
+    sockudo: &Sockudo,
     mut batch: Vec<BatchEvent>,
+    idempotency_key: Option<&str>,
 ) -> Result<reqwest::Response> {
     // Validate batch size
     if batch.is_empty() {
-        return Err(PusherError::Validation {
+        return Err(SockudoError::Validation {
             message: "Batch cannot be empty".to_string(),
         });
     }
 
     if batch.len() > 10 {
-        return Err(PusherError::Validation {
+        return Err(SockudoError::Validation {
             message: format!("Batch too large: {} events (max 10)", batch.len()),
         });
     }
@@ -442,12 +554,12 @@ pub async fn trigger_batch(
             #[cfg(feature = "encryption")]
             {
                 let data = EventData::String(event.data.clone());
-                event.data = encrypt(pusher, &event.channel, &data)?;
+                event.data = encrypt(sockudo, &event.channel, &data)?;
             }
 
             #[cfg(not(feature = "encryption"))]
             {
-                return Err(PusherError::Encryption {
+                return Err(SockudoError::Encryption {
                     message: "Encryption support is not enabled. Enable the 'encryption' feature to use encrypted channels.".to_string(),
                 });
             }
@@ -455,7 +567,11 @@ pub async fn trigger_batch(
     }
 
     let batch_payload = json!({ "batch": batch });
-    pusher.post("/batch_events", &batch_payload).await
+    let mut extra_headers = HashMap::new();
+    if let Some(key) = idempotency_key {
+        extra_headers.insert("X-Idempotency-Key".to_string(), key.to_string());
+    }
+    sockudo.post_with_headers("/batch_events", &batch_payload, &extra_headers).await
 }
 
 #[cfg(test)]
@@ -516,6 +632,7 @@ mod tests {
 
         assert_eq!(params.socket_id, Some("123.456".to_string()));
         assert_eq!(params.info, Some("test-info".to_string()));
+        assert_eq!(params.idempotency_key, None);
     }
 
     #[test]
@@ -526,5 +643,96 @@ mod tests {
         let params = TriggerParams::builder().tags(tags.clone()).build();
 
         assert_eq!(params.tags, Some(tags));
+    }
+
+    #[test]
+    fn test_trigger_params_builder_with_idempotency_key() {
+        let params = TriggerParams::builder()
+            .socket_id("123.456")
+            .idempotency_key("my-unique-key-123")
+            .build();
+
+        assert_eq!(params.socket_id, Some("123.456".to_string()));
+        assert_eq!(
+            params.idempotency_key,
+            Some("my-unique-key-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trigger_params_builder_with_auto_idempotency_key() {
+        let params = TriggerParams::builder().auto_idempotency_key().build();
+
+        assert!(params.idempotency_key.is_some());
+        let key = params.idempotency_key.unwrap();
+        // UUID v4 format: 8-4-4-4-12 hex chars
+        assert_eq!(key.len(), 36);
+        assert_eq!(key.chars().filter(|c| *c == '-').count(), 4);
+    }
+
+    #[test]
+    fn test_generate_idempotency_key() {
+        let key1 = generate_idempotency_key();
+        let key2 = generate_idempotency_key();
+
+        // Each key should be a valid UUID v4 (36 chars with dashes)
+        assert_eq!(key1.len(), 36);
+        assert_eq!(key2.len(), 36);
+        // Keys should be unique
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_batch_event_with_idempotency_key() {
+        let event = BatchEvent::new("test-event", "test-channel", "test-data")
+            .with_idempotency_key("batch-key-123");
+
+        assert_eq!(
+            event.idempotency_key,
+            Some("batch-key-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_batch_event_with_auto_idempotency_key() {
+        let event =
+            BatchEvent::new("test-event", "test-channel", "test-data").with_auto_idempotency_key();
+
+        assert!(event.idempotency_key.is_some());
+        assert_eq!(event.idempotency_key.unwrap().len(), 36);
+    }
+
+    #[test]
+    fn test_event_serialization_with_idempotency_key() {
+        let event = Event {
+            name: "test".to_string(),
+            data: "{}".to_string(),
+            channels: vec!["test-channel".to_string()],
+            socket_id: None,
+            info: None,
+            tags: None,
+            idempotency_key: Some("key-123".to_string()),
+            extras: None,
+        };
+
+        let json_str = sonic_rs::to_string(&event).unwrap();
+        assert!(json_str.contains("\"idempotency_key\":\"key-123\""));
+    }
+
+    #[test]
+    fn test_event_serialization_without_idempotency_key() {
+        let event = Event {
+            name: "test".to_string(),
+            data: "{}".to_string(),
+            channels: vec!["test-channel".to_string()],
+            socket_id: None,
+            info: None,
+            tags: None,
+            idempotency_key: None,
+            extras: None,
+        };
+
+        let json_str = sonic_rs::to_string(&event).unwrap();
+        assert!(!json_str.contains("idempotency_key"));
     }
 }

@@ -20,7 +20,7 @@ pub struct UserAuth {
 
 /// Gets socket signature for channel authorization
 pub fn get_socket_signature(
-    pusher: &crate::Pusher,
+    sockudo: &crate::Sockudo,
     token: &Token,
     channel: &str,
     socket_id: &str,
@@ -49,14 +49,14 @@ pub fn get_socket_signature(
     if util::is_encrypted_channel(channel) {
         #[cfg(feature = "encryption")]
         {
-            if pusher.config().encryption_master_key().is_none() {
-                return Err(crate::PusherError::Encryption {
+            if sockudo.config().encryption_master_key().is_none() {
+                return Err(crate::SockudoError::Encryption {
                     message: "Cannot generate shared_secret because encryptionMasterKey is not set"
                         .to_string(),
                 });
             }
 
-            let shared_secret = pusher.channel_shared_secret(channel)?;
+            let shared_secret = sockudo.channel_shared_secret(channel)?;
             result.shared_secret = Some(base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
                 &shared_secret,
@@ -65,7 +65,7 @@ pub fn get_socket_signature(
 
         #[cfg(not(feature = "encryption"))]
         {
-            return Err(crate::PusherError::Encryption {
+            return Err(crate::SockudoError::Encryption {
                 message: "Encryption support is not enabled. Enable the 'encryption' feature to use encrypted channels.".to_string(),
             });
         }
@@ -109,7 +109,7 @@ mod tests {
     #[cfg(feature = "encryption")]
     #[test]
     fn test_encrypted_channel_auth_with_encryption() {
-        use crate::{Config, Pusher};
+        use crate::{Config, Sockudo};
 
         // This test only runs when encryption is enabled
         let config = Config::builder()
@@ -121,11 +121,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let pusher = Pusher::new(config).unwrap();
+        let sockudo = Sockudo::new(config).unwrap();
         let token = Token::new("test_key", "test_secret");
 
         let result =
-            get_socket_signature(&pusher, &token, "private-encrypted-test", "123.456", None)
+            get_socket_signature(&sockudo, &token, "private-encrypted-test", "123.456", None)
                 .unwrap();
 
         assert!(result.shared_secret.is_some());
@@ -134,7 +134,7 @@ mod tests {
     #[cfg(not(feature = "encryption"))]
     #[test]
     fn test_encrypted_channel_auth_without_encryption() {
-        use crate::{Config, Pusher};
+        use crate::{Config, Sockudo};
 
         // This test only runs when encryption is disabled
         let config = Config::builder()
@@ -144,15 +144,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let pusher = Pusher::new(config).unwrap();
+        let sockudo = Sockudo::new(config).unwrap();
         let token = Token::new("test_key", "test_secret");
 
         let result =
-            get_socket_signature(&pusher, &token, "private-encrypted-test", "123.456", None);
+            get_socket_signature(&sockudo, &token, "private-encrypted-test", "123.456", None);
 
         // Should fail with appropriate error message
         assert!(result.is_err());
-        if let Err(crate::PusherError::Encryption { message }) = result {
+        if let Err(crate::SockudoError::Encryption { message }) = result {
             assert!(message.contains("Encryption support is not enabled"));
         } else {
             panic!("Expected encryption error");

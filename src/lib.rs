@@ -1,6 +1,6 @@
-//! Pusher HTTP API client for Rust
+//! Sockudo HTTP API client for Rust
 //!
-//! This library provides a safe, fast, and idiomatic Rust client for the Pusher HTTP API.
+//! This library provides a safe, fast, and idiomatic Rust client for the Sockudo HTTP API.
 //!
 //! # Features
 //!
@@ -25,7 +25,7 @@ pub mod channel;
 pub mod config;
 pub mod errors;
 pub mod events;
-pub mod pusher;
+pub mod sockudo;
 pub mod token;
 pub mod util;
 pub mod webhook;
@@ -35,17 +35,17 @@ extern crate zeroize;
 
 pub use channel::{Channel, ChannelName, ChannelType};
 pub use config::{Config, ConfigBuilder};
-pub use errors::{PusherError, RequestError, WebhookError};
-pub use pusher::Pusher;
+pub use errors::{SockudoError, RequestError, WebhookError};
+pub use sockudo::Sockudo;
 pub use token::Token;
 pub use webhook::{Webhook, WebhookEvent};
 
-/// Result type alias for Pusher operations
-pub type Result<T> = std::result::Result<T, PusherError>;
+/// Result type alias for Sockudo operations
+pub type Result<T> = std::result::Result<T, SockudoError>;
 
 // Re-export commonly used types
 pub use auth::{SocketAuth, UserAuth};
-pub use events::{BatchEvent, Event, TriggerParams};
+pub use events::{BatchEvent, Event, MessageExtras, TriggerParams, generate_idempotency_key};
 
 /// Check if encryption support is available at compile time
 pub const ENCRYPTION_AVAILABLE: bool = cfg!(feature = "encryption");

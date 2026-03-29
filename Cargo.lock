@@ -1081,31 +1081,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pushers"
-version = "1.5.0"
-dependencies = [
- "aes-gcm",
- "base64",
- "chacha20poly1305",
- "hex",
- "hmac",
- "md5",
- "rand",
- "regex",
- "reqwest",
- "serde",
- "sha2",
- "sodiumoxide",
- "sonic-rs",
- "subtle",
- "thiserror",
- "tokio",
- "tokio-test",
- "url",
- "zeroize",
-]
-
-[[package]]
 name = "quinn"
 version = "0.11.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1600,6 +1575,31 @@ checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "sockudo-http"
+version = "1.5.0"
+dependencies = [
+ "aes-gcm",
+ "base64",
+ "chacha20poly1305",
+ "hex",
+ "hmac",
+ "md5",
+ "rand",
+ "regex",
+ "reqwest",
+ "serde",
+ "sha2",
+ "sodiumoxide",
+ "sonic-rs",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "url",
+ "zeroize",
 ]
 
 [[package]]
