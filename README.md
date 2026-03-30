@@ -49,7 +49,9 @@ async fn main() -> Result<(), PusherError> {
         .app_id("YOUR_APP_ID")
         .key("YOUR_APP_KEY")
         .secret("YOUR_APP_SECRET")
-        .cluster("YOUR_CLUSTER") // e.g., "eu", "ap1"
+        .host("127.0.0.1")
+        .port(6001)
+        .use_tls(false)
         .timeout(std::time::Duration::from_secs(5)) // Optional
         .build()?;
 
@@ -67,18 +69,20 @@ let config = Config::builder()
     .app_id("YOUR_APP_ID")
     .key("YOUR_APP_KEY")
     .secret("YOUR_APP_SECRET")
-    .cluster("YOUR_CLUSTER")
+    .host("127.0.0.1")
+    .port(6001)
+    .use_tls(false)
     .encryption_master_key_base64("YOUR_BASE64_ENCRYPTION_MASTER_KEY")?
     .build()?;
 ```
 
-You can also initialize from a Pusher URL:
+You can also initialize from a URL:
 
 ```rust
 use pushers::{Pusher, PusherError};
 
 let pusher = Pusher::from_url(
-    "http://YOUR_APP_KEY:YOUR_APP_SECRET@api-YOUR_CLUSTER.pusher.com/apps/YOUR_APP_ID",
+    "http://YOUR_APP_KEY:YOUR_APP_SECRET@127.0.0.1:6001/apps/YOUR_APP_ID",
     None,
 )?;
 ```
@@ -125,6 +129,18 @@ async fn trigger_event_exclude(pusher: &Pusher) -> Result<(), PusherError> {
     pusher.trigger(&channels, event_name, data, Some(params)).await?;
     Ok(())
 }
+```
+
+**Idempotency key:**
+
+Attach an idempotency key so the server deduplicates the event on retries, ensuring at-most-once delivery:
+
+```rust
+let params = TriggerParams::builder()
+    .idempotency_key("unique-key-for-this-event")
+    .build();
+
+pusher.trigger(&channels, event_name, data, Some(params)).await?;
 ```
 
 ### 3. Triggering Batch Events
@@ -380,11 +396,13 @@ async fn main() {
         .app_id("YOUR_APP_ID")
         .key("YOUR_APP_KEY")
         .secret("YOUR_APP_SECRET")
-        .cluster("YOUR_CLUSTER")
+        .host("127.0.0.1")
+        .port(6001)
+        .use_tls(false)
         .build()
-        .expect("Failed to build Pusher config");
+        .expect("Failed to build config");
 
-    let pusher = Arc::new(Pusher::new(config).expect("Failed to create Pusher client"));
+    let pusher = Arc::new(Pusher::new(config).expect("Failed to create client"));
     let app_state = AppState { pusher };
 
     let app = Router::new()
@@ -463,7 +481,7 @@ The `Config` struct is used to configure the Pusher client. Create it using `Con
 | `app_id(id)` | Sets the Pusher app ID (required) |
 | `key(key)` | Sets the Pusher app key (required) |
 | `secret(secret)` | Sets the Pusher app secret (required) |
-| `cluster(name)` | Sets the cluster (e.g., `"eu"`, `"ap1"`). Sets host to `api-{cluster}.pusher.com` |
+| `cluster(name)` | Sets a named cluster (e.g., `"eu"`, `"ap1"`). For self-hosted Sockudo, use `host` and `port` directly instead. |
 | `host(host)` | Sets a custom host if not using a standard cluster |
 | `use_tls(bool)` | Enable HTTPS (default: `true`) |
 | `port(number)` | Custom port |
