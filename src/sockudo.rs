@@ -2,7 +2,7 @@ use crate::{
     Channel, Config, RequestError, Result, SockudoError, Token, auth, events, util,
     webhook::Webhook,
 };
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use events::EventData;
 use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
@@ -124,7 +124,7 @@ impl Sockudo {
         let config = Config::builder()
             .app_id(self.inner.config.app_id())
             .key(&self.inner.config.token().key)
-            .secret(&self.inner.config.token().secret_string())
+            .secret(self.inner.config.token().secret_string())
             .cluster(cluster)
             .use_tls(self.inner.config.scheme() == "https")
             .timeout(self.inner.config.timeout())
@@ -147,7 +147,7 @@ impl Sockudo {
         util::validate_socket_id(socket_id)?;
         auth::get_socket_signature(
             self,
-            &self.inner.config.token(),
+            self.inner.config.token(),
             &channel.full_name(),
             socket_id,
             data,
@@ -170,21 +170,18 @@ impl Sockudo {
         util::validate_socket_id(socket_id)?;
 
         // Validate user data has ID
-        if let Some(id) = user_data.get("id") {
-            if let Some(id_str) = id.as_str() {
-                util::validate_user_id(id_str)?;
-            } else {
-                return Err(SockudoError::Validation {
-                    message: "User data ID must be a string".to_string(),
-                });
-            }
+        let id = user_data.get("id").ok_or_else(|| SockudoError::Validation {
+            message: "User data must contain an 'id' field".to_string(),
+        })?;
+        if let Some(id_str) = id.as_str() {
+            util::validate_user_id(id_str)?;
         } else {
             return Err(SockudoError::Validation {
-                message: "User data must contain an 'id' field".to_string(),
+                message: "User data ID must be a string".to_string(),
             });
         }
 
-        auth::get_socket_signature_for_user(&self.inner.config.token(), socket_id, user_data)
+        auth::get_socket_signature_for_user(self.inner.config.token(), socket_id, user_data)
     }
 
     /// Sends an event to a user
@@ -268,7 +265,7 @@ impl Sockudo {
     ) -> Result<Response> {
         let channels: Result<Vec<Channel>> = channel_names
             .iter()
-            .map(|name| Channel::from_string(name))
+            .map(Channel::from_string)
             .collect();
         self.trigger(&channels?, event, data, params).await
     }
@@ -389,7 +386,7 @@ impl Sockudo {
 
     /// Creates a webhook from request data
     pub fn webhook(&self, headers: &BTreeMap<String, String>, body: &str) -> Webhook {
-        Webhook::new(&self.inner.config.token(), headers, body)
+        Webhook::new(self.inner.config.token(), headers, body)
     }
 
     /// Generates channel shared secret for encryption
@@ -420,7 +417,7 @@ impl Sockudo {
         body: Option<&str>,
         params: Option<&BTreeMap<String, String>>,
     ) -> String {
-        create_signed_query_string(&self.inner.config.token(), method, path, body, params)
+        create_signed_query_string(self.inner.config.token(), method, path, body, params)
     }
 
     /// Internal method to send HTTP requests with retry logic
@@ -436,7 +433,7 @@ impl Sockudo {
         let body_str = body.map(|b| sonic_rs::to_string(b)).transpose()?;
 
         let query_string = create_signed_query_string(
-            &self.inner.config.token(),
+            self.inner.config.token(),
             method,
             &full_path,
             body_str.as_deref(),
