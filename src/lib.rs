@@ -35,7 +35,7 @@ extern crate zeroize;
 
 pub use channel::{Channel, ChannelName, ChannelType};
 pub use config::{Config, ConfigBuilder};
-pub use errors::{SockudoError, RequestError, WebhookError};
+pub use errors::{RequestError, SockudoError, WebhookError};
 pub use sockudo::Sockudo;
 pub use token::Token;
 pub use webhook::{Webhook, WebhookEvent};

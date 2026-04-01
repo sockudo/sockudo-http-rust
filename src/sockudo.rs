@@ -1,12 +1,13 @@
 use crate::{
-    Channel, Config, SockudoError, RequestError, Result, Token, auth, events, util, webhook::Webhook,
+    Channel, Config, RequestError, Result, SockudoError, Token, auth, events, util,
+    webhook::Webhook,
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use events::EventData;
 use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
 use sonic_rs::{JsonValueTrait, Value, json};
 use std::collections::{BTreeMap, HashMap};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -282,10 +283,8 @@ impl Sockudo {
             let serial = self.inner.publish_serial.fetch_add(1, Ordering::SeqCst);
             for (i, event) in batch.iter_mut().enumerate() {
                 if event.idempotency_key.is_none() {
-                    event.idempotency_key = Some(format!(
-                        "{}:{}:{}",
-                        self.inner.base_id, serial, i
-                    ));
+                    event.idempotency_key =
+                        Some(format!("{}:{}:{}", self.inner.base_id, serial, i));
                 }
             }
         }
@@ -305,10 +304,8 @@ impl Sockudo {
             let serial = self.inner.publish_serial.fetch_add(1, Ordering::SeqCst);
             for (i, event) in batch.iter_mut().enumerate() {
                 if event.idempotency_key.is_none() {
-                    event.idempotency_key = Some(format!(
-                        "{}:{}:{}",
-                        self.inner.base_id, serial, i
-                    ));
+                    event.idempotency_key =
+                        Some(format!("{}:{}:{}", self.inner.base_id, serial, i));
                 }
             }
         }
@@ -361,7 +358,8 @@ impl Sockudo {
 
     /// Makes a POST request
     pub async fn post(&self, path: &str, body: &Value) -> Result<Response> {
-        self.send_request("POST", path, Some(body), None, None).await
+        self.send_request("POST", path, Some(body), None, None)
+            .await
     }
 
     /// Makes a POST request with extra headers
@@ -376,7 +374,8 @@ impl Sockudo {
         } else {
             Some(extra_headers)
         };
-        self.send_request("POST", path, Some(body), None, headers).await
+        self.send_request("POST", path, Some(body), None, headers)
+            .await
     }
 
     /// Makes a GET request

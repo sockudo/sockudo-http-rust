@@ -1,4 +1,4 @@
-use crate::{SockudoError, Result, Token, WebhookError};
+use crate::{Result, SockudoError, Token, WebhookError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 

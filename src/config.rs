@@ -1,5 +1,5 @@
-use crate::{SockudoError, Result, Token};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use crate::{Result, SockudoError, Token};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use std::time::Duration;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -308,12 +308,14 @@ mod tests {
     fn test_config_validation() {
         assert!(Config::builder().build().is_err());
         assert!(Config::builder().app_id("123").build().is_err());
-        assert!(Config::builder()
-            .app_id("123")
-            .key("key")
-            .secret("secret")
-            .build()
-            .is_ok());
+        assert!(
+            Config::builder()
+                .app_id("123")
+                .key("key")
+                .secret("secret")
+                .build()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -330,11 +332,13 @@ mod tests {
         assert!(config.encryption_master_key().is_some());
 
         // Wrong size should fail
-        assert!(Config::builder()
-            .app_id("123")
-            .key("key")
-            .secret("secret")
-            .encryption_master_key(vec![0u8; 16])
-            .is_err());
+        assert!(
+            Config::builder()
+                .app_id("123")
+                .key("key")
+                .secret("secret")
+                .encryption_master_key(vec![0u8; 16])
+                .is_err()
+        );
     }
 }

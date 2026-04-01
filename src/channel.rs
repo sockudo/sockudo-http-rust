@@ -1,4 +1,4 @@
-use crate::{SockudoError, Result};
+use crate::{Result, SockudoError};
 use std::fmt;
 use std::str::FromStr;
 

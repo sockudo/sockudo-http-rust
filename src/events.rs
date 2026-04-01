@@ -1,4 +1,4 @@
-use crate::{Channel, Sockudo, SockudoError, Result};
+use crate::{Channel, Result, Sockudo, SockudoError};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sonic_rs::{Value, json};
@@ -17,7 +17,7 @@ pub struct MessageExtras {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub echo: Option<bool>,
 }
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 #[cfg(all(feature = "encryption", feature = "sodiumoxide"))]
 use std::sync::Once;
@@ -193,7 +193,9 @@ impl BatchEvent {
 
     /// Sets the ephemeral flag in extras
     pub fn with_ephemeral(mut self, ephemeral: bool) -> Self {
-        self.extras.get_or_insert_with(MessageExtras::default).ephemeral = Some(ephemeral);
+        self.extras
+            .get_or_insert_with(MessageExtras::default)
+            .ephemeral = Some(ephemeral);
         self
     }
 
@@ -270,7 +272,9 @@ impl TriggerParamsBuilder {
 
     /// Sets the ephemeral flag in extras
     pub fn with_ephemeral(mut self, ephemeral: bool) -> Self {
-        self.extras.get_or_insert_with(MessageExtras::default).ephemeral = Some(ephemeral);
+        self.extras
+            .get_or_insert_with(MessageExtras::default)
+            .ephemeral = Some(ephemeral);
         self
     }
 
@@ -471,7 +475,9 @@ pub async fn trigger<D: Into<EventData>>(
             }
 
             let event_json = sonic_rs::to_value(&event)?;
-            sockudo.post_with_headers("/events", &event_json, &extra_headers).await
+            sockudo
+                .post_with_headers("/events", &event_json, &extra_headers)
+                .await
         }
 
         #[cfg(not(feature = "encryption"))]
@@ -511,7 +517,9 @@ pub async fn trigger<D: Into<EventData>>(
         }
 
         let event_json = sonic_rs::to_value(&event)?;
-        sockudo.post_with_headers("/events", &event_json, &extra_headers).await
+        sockudo
+            .post_with_headers("/events", &event_json, &extra_headers)
+            .await
     }
 }
 
@@ -571,7 +579,9 @@ pub async fn trigger_batch(
     if let Some(key) = idempotency_key {
         extra_headers.insert("X-Idempotency-Key".to_string(), key.to_string());
     }
-    sockudo.post_with_headers("/batch_events", &batch_payload, &extra_headers).await
+    sockudo
+        .post_with_headers("/batch_events", &batch_payload, &extra_headers)
+        .await
 }
 
 #[cfg(test)]
@@ -687,10 +697,7 @@ mod tests {
         let event = BatchEvent::new("test-event", "test-channel", "test-data")
             .with_idempotency_key("batch-key-123");
 
-        assert_eq!(
-            event.idempotency_key,
-            Some("batch-key-123".to_string())
-        );
+        assert_eq!(event.idempotency_key, Some("batch-key-123".to_string()));
     }
 
     #[test]
