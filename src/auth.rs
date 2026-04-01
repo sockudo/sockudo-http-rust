@@ -26,6 +26,8 @@ pub fn get_socket_signature(
     socket_id: &str,
     data: Option<&Value>,
 ) -> crate::Result<SocketAuth> {
+    #[cfg(not(feature = "encryption"))]
+    let _ = sockudo;
     let mut signature_data = vec![socket_id.to_string(), channel.to_string()];
     let mut channel_data = None;
 
@@ -39,6 +41,7 @@ pub fn get_socket_signature(
     let signature = token.sign(&auth_string);
     let auth = format!("{}:{}", token.key, signature);
 
+    #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
     let mut result = SocketAuth {
         auth,
         channel_data,
