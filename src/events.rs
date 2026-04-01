@@ -1,5 +1,5 @@
 use crate::{Channel, Result, Sockudo, SockudoError};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD}};
 use serde::{Deserialize, Serialize};
 use sonic_rs::{Value, json};
 use std::collections::HashMap;
@@ -17,7 +17,6 @@ pub struct MessageExtras {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub echo: Option<bool>,
 }
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 #[cfg(all(feature = "encryption", feature = "sodiumoxide"))]
 use std::sync::Once;
@@ -52,18 +51,10 @@ impl EventData {
         EventData::Json(value)
     }
 
-    /// Converts the event data to a string for transmission
-    pub fn to_string(&self) -> String {
-        match self {
-            EventData::String(s) => s.clone(),
-            EventData::Json(v) => sonic_rs::to_string(v).unwrap_or_default(),
-        }
-    }
-
     /// Gets the event data as a JSON value
     pub fn as_json(&self) -> Result<Value> {
         match self {
-            EventData::String(s) => sonic_rs::from_str(s).map_err(|e| SockudoError::Json(e)),
+            EventData::String(s) => sonic_rs::from_str(s).map_err(SockudoError::Json),
             EventData::Json(v) => Ok(v.clone()),
         }
     }
@@ -71,7 +62,10 @@ impl EventData {
 
 impl fmt::Display for EventData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        match self {
+            EventData::String(s) => write!(f, "{}", s),
+            EventData::Json(v) => write!(f, "{}", sonic_rs::to_string(v).unwrap_or_default()),
+        }
     }
 }
 
