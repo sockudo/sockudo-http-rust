@@ -59,7 +59,7 @@ pub fn get_socket_signature(
             let shared_secret = sockudo.channel_shared_secret(channel)?;
             result.shared_secret = Some(base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
-                &shared_secret,
+                shared_secret,
             ));
         }
 
