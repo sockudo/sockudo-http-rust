@@ -1,8 +1,7 @@
 use crate::{Channel, Result, Sockudo, SockudoError};
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
-};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+#[cfg(feature = "encryption")]
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
 use sonic_rs::{Value, json};
 use std::collections::HashMap;
@@ -413,6 +412,7 @@ fn encrypt_pure_rust(sockudo: &Sockudo, channel: &str, data: &EventData) -> Resu
 
 /// Stub function when encryption is disabled
 #[cfg(not(feature = "encryption"))]
+#[allow(dead_code)]
 fn encrypt(_sockudo: &Sockudo, _channel: &str, _data: &EventData) -> Result<String> {
     Err(SockudoError::Encryption {
         message: "Encryption support is not enabled. Enable the 'encryption' feature to use encrypted channels.".to_string(),
