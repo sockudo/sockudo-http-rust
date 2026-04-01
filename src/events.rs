@@ -528,7 +528,7 @@ pub async fn trigger_on_channels<D: Into<EventData>>(
     data: D,
     params: Option<&TriggerParams>,
 ) -> Result<reqwest::Response> {
-    let channels: Result<Vec<Channel>> = channels.iter().map(|c| Channel::from_string(c)).collect();
+    let channels: Result<Vec<Channel>> = channels.iter().map(Channel::from_string).collect();
     let channels = channels?;
     trigger(sockudo, &channels, event_name, data, params).await
 }
