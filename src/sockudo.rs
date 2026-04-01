@@ -607,3 +607,4 @@ mod tests {
         assert_eq!(eu_sockudo.config().host(), "api-eu.sockudo.io");
     }
 }
+
