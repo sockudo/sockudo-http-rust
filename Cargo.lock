@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "sockudo-http"
-version = "1.5.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "base64",
