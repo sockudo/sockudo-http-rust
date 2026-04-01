@@ -1,5 +1,8 @@
 use crate::{Channel, Result, Sockudo, SockudoError};
-use base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD}};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
+};
 use serde::{Deserialize, Serialize};
 use sonic_rs::{Value, json};
 use std::collections::HashMap;
