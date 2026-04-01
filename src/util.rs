@@ -174,9 +174,9 @@ mod tests {
 
     #[test]
     fn test_join_strings() {
-        let items = vec!["a", "b", "c"];
+        let items = ["a", "b", "c"];
         assert_eq!(join_strings(items.iter().copied(), ","), "a,b,c");
-        assert_eq!(join_strings(vec!["single"].iter().copied(), ","), "single");
+        assert_eq!(join_strings(["single"].iter().copied(), ","), "single");
         assert_eq!(join_strings(Vec::<&str>::new().iter().copied(), ","), "");
     }
 

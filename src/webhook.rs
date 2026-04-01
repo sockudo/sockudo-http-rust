@@ -96,8 +96,8 @@ impl Webhook {
             vec![&self.token]
         };
 
-        for token in tokens_to_check {
-            if let (Some(key), Some(signature)) = (&self.key, &self.signature) {
+        if let (Some(key), Some(signature)) = (&self.key, &self.signature) {
+            for token in tokens_to_check {
                 if key == &token.key && token.verify(&self.body, signature) {
                     return true;
                 }
@@ -145,7 +145,7 @@ impl Webhook {
     /// Gets the events as strongly typed enums
     pub fn get_events(&self) -> Result<Vec<WebhookEvent>> {
         let raw_events = self.get_raw_events()?;
-        Ok(raw_events.iter().map(|e| parse_webhook_event(e)).collect())
+        Ok(raw_events.iter().map(parse_webhook_event).collect())
     }
 
     /// Gets the timestamp from webhook data
