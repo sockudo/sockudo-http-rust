@@ -1,7 +1,7 @@
 use crate::{Channel, Result, Sockudo, SockudoError};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 #[cfg(feature = "encryption")]
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sonic_rs::{Value, json};
 use std::collections::HashMap;
