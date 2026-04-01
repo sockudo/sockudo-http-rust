@@ -63,12 +63,12 @@ impl Config {
             });
         }
 
-        if let Some(ref key) = self.encryption_master_key {
-            if key.0.len() != 32 {
-                return Err(SockudoError::Config {
-                    message: format!("Encryption key must be 32 bytes, got {}", key.0.len()),
-                });
-            }
+        if let Some(ref key) = self.encryption_master_key
+            && key.0.len() != 32
+        {
+            return Err(SockudoError::Config {
+                message: format!("Encryption key must be 32 bytes, got {}", key.0.len()),
+            });
         }
 
         Ok(())
