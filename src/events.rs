@@ -740,4 +740,3 @@ mod tests {
         assert!(!json_str.contains("idempotency_key"));
     }
 }
-
