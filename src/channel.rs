@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn test_channel_name_validation() {
         assert!(ChannelName::new("").is_err());
-        assert!(ChannelName::new(&"a".repeat(201)).is_err());
+        assert!(ChannelName::new("a".repeat(201)).is_err());
         assert!(ChannelName::new("test channel").is_err()); // space not allowed
         assert!(ChannelName::new("test-channel_123").is_ok());
     }
