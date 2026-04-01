@@ -170,9 +170,11 @@ impl Sockudo {
         util::validate_socket_id(socket_id)?;
 
         // Validate user data has ID
-        let id = user_data.get("id").ok_or_else(|| SockudoError::Validation {
-            message: "User data must contain an 'id' field".to_string(),
-        })?;
+        let id = user_data
+            .get("id")
+            .ok_or_else(|| SockudoError::Validation {
+                message: "User data must contain an 'id' field".to_string(),
+            })?;
         if let Some(id_str) = id.as_str() {
             util::validate_user_id(id_str)?;
         } else {
@@ -263,10 +265,8 @@ impl Sockudo {
         data: D,
         params: Option<events::TriggerParams>,
     ) -> Result<Response> {
-        let channels: Result<Vec<Channel>> = channel_names
-            .iter()
-            .map(Channel::from_string)
-            .collect();
+        let channels: Result<Vec<Channel>> =
+            channel_names.iter().map(Channel::from_string).collect();
         self.trigger(&channels?, event, data, params).await
     }
 
