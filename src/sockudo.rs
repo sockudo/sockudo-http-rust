@@ -226,10 +226,10 @@ impl Sockudo {
         data: D,
         params: Option<events::TriggerParams>,
     ) -> Result<Response> {
-        if let Some(ref params) = params {
-            if let Some(ref socket_id) = params.socket_id {
-                util::validate_socket_id(socket_id)?;
-            }
+        if let Some(ref params) = params
+            && let Some(ref socket_id) = params.socket_id
+        {
+            util::validate_socket_id(socket_id)?;
         }
 
         if event.len() > 200 {
@@ -430,7 +430,7 @@ impl Sockudo {
         extra_headers: Option<&HashMap<String, String>>,
     ) -> Result<Response> {
         let full_path = self.inner.config.prefix_path(path);
-        let body_str = body.map(|b| sonic_rs::to_string(b)).transpose()?;
+        let body_str = body.map(sonic_rs::to_string).transpose()?;
 
         let query_string = create_signed_query_string(
             self.inner.config.token(),
@@ -497,7 +497,7 @@ impl Sockudo {
                     let body = resp.text().await.unwrap_or_default();
 
                     // Don't retry on 4xx errors (client errors)
-                    if status >= 400 && status < 500 {
+                    if (400..500).contains(&status) {
                         return Err(SockudoError::Request(RequestError::new(
                             format!("HTTP {}", status),
                             &url,
