@@ -494,6 +494,39 @@ The `Config` struct is used to configure the Pusher client. Create it using `Con
 
 Call `.build()` on the `ConfigBuilder` to get a `Result<Config, PusherError>`.
 
+## Channel History
+
+```rust
+use sockudo_http::{HistoryParams, Sockudo};
+
+async fn fetch_history(sockudo: &Sockudo) -> Result<(), sockudo_http::SockudoError> {
+    let page = sockudo
+        .channel_history_with_name(
+            "my-channel",
+            Some(&HistoryParams {
+                limit: Some(50),
+                direction: Some("newest_first".to_string()),
+                ..Default::default()
+            }),
+        )
+        .await?;
+
+    if let Some(cursor) = page.next_cursor.clone() {
+        let _next_page = sockudo
+            .channel_history_with_name(
+                "my-channel",
+                Some(&HistoryParams {
+                    cursor: Some(cursor),
+                    ..Default::default()
+                }),
+            )
+            .await?;
+    }
+
+    Ok(())
+}
+```
+
 ## Error Handling
 
 All fallible methods return `Result<T, PusherError>`. The `PusherError` enum variants:

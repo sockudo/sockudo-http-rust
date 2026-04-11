@@ -1,6 +1,7 @@
 use crate::{
-    Channel, Config, RequestError, Result, SockudoError, Token, auth, events, util,
-    webhook::Webhook,
+    Channel, Config, HistoryPage, HistoryParams, PresenceHistoryPage, PresenceHistoryParams,
+    PresenceSnapshot, PresenceSnapshotParams, RequestError, Result, SockudoError, Token, auth,
+    events, util, webhook::Webhook,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use events::EventData;
@@ -211,6 +212,61 @@ impl Sockudo {
         util::validate_user_id(user_id)?;
         let path = format!("/users/{}/terminate_connections", user_id);
         self.post(&path, &json!({})).await
+    }
+
+    /// Fetches durable history for a channel.
+    pub async fn channel_history(
+        &self,
+        channel: &Channel,
+        params: Option<&HistoryParams>,
+    ) -> Result<HistoryPage> {
+        let path = format!("/channels/{}/history", channel.full_name());
+        let param_map = params.map(HistoryParams::to_map);
+        let response = self.get(&path, param_map.as_ref()).await?;
+        let body = response.text().await?;
+        let page = sonic_rs::from_str::<HistoryPage>(&body).map_err(SockudoError::Json)?;
+        Ok(page)
+    }
+
+    /// Fetches durable history for a channel name.
+    pub async fn channel_history_with_name(
+        &self,
+        channel_name: &str,
+        params: Option<&HistoryParams>,
+    ) -> Result<HistoryPage> {
+        let channel = Channel::from_string(channel_name)?;
+        self.channel_history(&channel, params).await
+    }
+
+    /// Fetches presence history for a presence channel.
+    pub async fn channel_presence_history(
+        &self,
+        channel_name: &str,
+        params: Option<&PresenceHistoryParams>,
+    ) -> Result<PresenceHistoryPage> {
+        util::validate_presence_channel(channel_name)?;
+        let path = format!("/channels/{}/presence/history", channel_name);
+        let param_map = params.map(PresenceHistoryParams::to_map);
+        let response = self.get(&path, param_map.as_ref()).await?;
+        let body = response.text().await?;
+        let page =
+            sonic_rs::from_str::<PresenceHistoryPage>(&body).map_err(SockudoError::Json)?;
+        Ok(page)
+    }
+
+    /// Reconstructs presence membership at a point in time.
+    pub async fn channel_presence_snapshot(
+        &self,
+        channel_name: &str,
+        params: Option<&PresenceSnapshotParams>,
+    ) -> Result<PresenceSnapshot> {
+        util::validate_presence_channel(channel_name)?;
+        let path = format!("/channels/{}/presence/history/snapshot", channel_name);
+        let param_map = params.map(PresenceSnapshotParams::to_map);
+        let response = self.get(&path, param_map.as_ref()).await?;
+        let body = response.text().await?;
+        let snapshot = sonic_rs::from_str::<PresenceSnapshot>(&body).map_err(SockudoError::Json)?;
+        Ok(snapshot)
     }
 
     /// Triggers an event on channels.
@@ -577,6 +633,10 @@ impl std::fmt::Debug for Sockudo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::HistoryParams;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     #[test]
     fn test_sockudo_creation() {
@@ -605,5 +665,84 @@ mod tests {
 
         let eu_sockudo = sockudo.for_cluster("eu").unwrap();
         assert_eq!(eu_sockudo.config().host(), "api-eu.sockudo.io");
+    }
+
+    #[test]
+    fn test_history_params_to_map() {
+        let params = HistoryParams {
+            limit: Some(50),
+            direction: Some("newest_first".to_string()),
+            cursor: Some("abc".to_string()),
+            start_serial: Some(10),
+            end_serial: Some(20),
+            start_time_ms: Some(1000),
+            end_time_ms: Some(2000),
+        };
+
+        let map = params.to_map();
+        assert_eq!(map.get("limit"), Some(&"50".to_string()));
+        assert_eq!(map.get("direction"), Some(&"newest_first".to_string()));
+        assert_eq!(map.get("cursor"), Some(&"abc".to_string()));
+        assert_eq!(map.get("start_serial"), Some(&"10".to_string()));
+        assert_eq!(map.get("end_serial"), Some(&"20".to_string()));
+        assert_eq!(map.get("start_time_ms"), Some(&"1000".to_string()));
+        assert_eq!(map.get("end_time_ms"), Some(&"2000".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_channel_history_requests_expected_path_and_decodes_page() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 4096];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.contains("GET /apps/123/channels/history-room/history?"));
+            assert!(request.contains("limit=50"));
+            assert!(request.contains("direction=newest_first"));
+            assert!(request.contains("cursor=abc"));
+            assert!(request.contains("start_serial=10"));
+            assert!(request.contains("end_serial=20"));
+            let body = r#"{"items":[],"direction":"newest_first","limit":50,"has_more":true,"next_cursor":"abc","bounds":{"start_serial":10,"end_serial":20,"start_time_ms":1000,"end_time_ms":2000},"continuity":{"stream_id":"stream-1","oldest_available_serial":10,"newest_available_serial":20,"retained_messages":2,"retained_bytes":100,"complete":false,"truncated_by_retention":false}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let config = Config::builder()
+            .app_id("123")
+            .key("key")
+            .secret("secret")
+            .host("127.0.0.1")
+            .port(addr.port())
+            .use_tls(false)
+            .build()
+            .unwrap();
+        let sockudo = Sockudo::new(config).unwrap();
+        let page = sockudo
+            .channel_history_with_name(
+                "history-room",
+                Some(&HistoryParams {
+                    limit: Some(50),
+                    direction: Some("newest_first".to_string()),
+                    cursor: Some("abc".to_string()),
+                    start_serial: Some(10),
+                    end_serial: Some(20),
+                    start_time_ms: Some(1000),
+                    end_time_ms: Some(2000),
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(page.direction, "newest_first");
+        assert_eq!(page.next_cursor.as_deref(), Some("abc"));
+        assert_eq!(page.continuity.stream_id.as_deref(), Some("stream-1"));
+        server.join().unwrap();
     }
 }

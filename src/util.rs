@@ -53,6 +53,20 @@ pub fn validate_channel(channel: &str) -> crate::Result<()> {
     Ok(())
 }
 
+/// Validates that a channel name starts with `presence-`.
+pub fn validate_presence_channel(channel: &str) -> crate::Result<()> {
+    validate_channel(channel)?;
+    if !channel.starts_with("presence-") {
+        return Err(crate::SockudoError::Validation {
+            message: format!(
+                "Presence history is only available for presence channels: '{}'",
+                channel
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Validates a socket ID
 pub fn validate_socket_id(socket_id: &str) -> crate::Result<()> {
     if !SOCKET_ID_PATTERN.is_match(socket_id) {
