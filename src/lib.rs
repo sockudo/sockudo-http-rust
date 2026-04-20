@@ -48,7 +48,10 @@ pub type Result<T> = std::result::Result<T, SockudoError>;
 // Re-export commonly used types
 pub use auth::{SocketAuth, UserAuth};
 pub use events::{BatchEvent, Event, MessageExtras, TriggerParams, generate_idempotency_key};
-pub use history::{HistoryBounds, HistoryContinuity, HistoryItem, HistoryPage, HistoryParams};
+pub use history::{
+    GetMessageResponse, HistoryBounds, HistoryContinuity, HistoryItem, HistoryPage, HistoryParams,
+    ListMessageVersionsResponse, MessageVersionsParams, MutationResponse,
+};
 pub use presence_history::{
     PresenceHistoryBounds, PresenceHistoryContinuity, PresenceHistoryItem, PresenceHistoryPage,
     PresenceHistoryParams, PresenceSnapshot, PresenceSnapshotMember, PresenceSnapshotParams,

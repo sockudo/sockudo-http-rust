@@ -1,5 +1,6 @@
 use crate::{
-    Channel, Config, HistoryPage, HistoryParams, PresenceHistoryPage, PresenceHistoryParams,
+    Channel, Config, GetMessageResponse, HistoryPage, HistoryParams, ListMessageVersionsResponse,
+    MessageVersionsParams, MutationResponse, PresenceHistoryPage, PresenceHistoryParams,
     PresenceSnapshot, PresenceSnapshotParams, RequestError, Result, SockudoError, Token, auth,
     events, util, webhook::Webhook,
 };
@@ -249,8 +250,7 @@ impl Sockudo {
         let param_map = params.map(PresenceHistoryParams::to_map);
         let response = self.get(&path, param_map.as_ref()).await?;
         let body = response.text().await?;
-        let page =
-            sonic_rs::from_str::<PresenceHistoryPage>(&body).map_err(SockudoError::Json)?;
+        let page = sonic_rs::from_str::<PresenceHistoryPage>(&body).map_err(SockudoError::Json)?;
         Ok(page)
     }
 
@@ -267,6 +267,89 @@ impl Sockudo {
         let body = response.text().await?;
         let snapshot = sonic_rs::from_str::<PresenceSnapshot>(&body).map_err(SockudoError::Json)?;
         Ok(snapshot)
+    }
+
+    /// Fetches the latest visible version for a logical message.
+    pub async fn get_message(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+    ) -> Result<GetMessageResponse> {
+        let path = format!("/channels/{}/messages/{}", channel_name, message_serial);
+        let response = self.get(&path, None).await?;
+        let body = response.text().await?;
+        let item = sonic_rs::from_str::<GetMessageResponse>(&body).map_err(SockudoError::Json)?;
+        Ok(item)
+    }
+
+    /// Fetches preserved versions for a logical message.
+    pub async fn get_message_versions(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        params: Option<&MessageVersionsParams>,
+    ) -> Result<ListMessageVersionsResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/versions",
+            channel_name, message_serial
+        );
+        let param_map = params.map(MessageVersionsParams::to_map);
+        let response = self.get(&path, param_map.as_ref()).await?;
+        let body = response.text().await?;
+        let page =
+            sonic_rs::from_str::<ListMessageVersionsResponse>(&body).map_err(SockudoError::Json)?;
+        Ok(page)
+    }
+
+    /// Applies a versioned message update.
+    pub async fn update_message(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        body: &Value,
+    ) -> Result<MutationResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/update",
+            channel_name, message_serial
+        );
+        let response = self.post(&path, body).await?;
+        let text = response.text().await?;
+        let result = sonic_rs::from_str::<MutationResponse>(&text).map_err(SockudoError::Json)?;
+        Ok(result)
+    }
+
+    /// Applies a versioned message delete.
+    pub async fn delete_message(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        body: &Value,
+    ) -> Result<MutationResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/delete",
+            channel_name, message_serial
+        );
+        let response = self.post(&path, body).await?;
+        let text = response.text().await?;
+        let result = sonic_rs::from_str::<MutationResponse>(&text).map_err(SockudoError::Json)?;
+        Ok(result)
+    }
+
+    /// Applies a versioned message append.
+    pub async fn append_message(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        body: &Value,
+    ) -> Result<MutationResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/append",
+            channel_name, message_serial
+        );
+        let response = self.post(&path, body).await?;
+        let text = response.text().await?;
+        let result = sonic_rs::from_str::<MutationResponse>(&text).map_err(SockudoError::Json)?;
+        Ok(result)
     }
 
     /// Triggers an event on channels.
@@ -743,6 +826,43 @@ mod tests {
         assert_eq!(page.direction, "newest_first");
         assert_eq!(page.next_cursor.as_deref(), Some("abc"));
         assert_eq!(page.continuity.stream_id.as_deref(), Some("stream-1"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_message_requests_expected_path_and_decodes_payload() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 4096];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.contains("GET /apps/123/channels/chat:room-1/messages/msg:1?"));
+            let body = r#"{"channel":"chat:room-1","item":{"message_serial":"msg:1","action":"update","data":"hello"}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let config = Config::builder()
+            .app_id("123")
+            .key("key")
+            .secret("secret")
+            .host("127.0.0.1")
+            .port(addr.port())
+            .use_tls(false)
+            .build()
+            .unwrap();
+        let sockudo = Sockudo::new(config).unwrap();
+        let response = sockudo.get_message("chat:room-1", "msg:1").await.unwrap();
+
+        assert_eq!(response.channel, "chat:room-1");
+        assert_eq!(response.item["message_serial"].as_str(), Some("msg:1"));
         server.join().unwrap();
     }
 }

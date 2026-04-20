@@ -84,3 +84,52 @@ pub struct HistoryContinuity {
     pub complete: bool,
     pub truncated_by_retention: bool,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct MessageVersionsParams {
+    pub limit: Option<u32>,
+    pub direction: Option<String>,
+    pub cursor: Option<String>,
+}
+
+impl MessageVersionsParams {
+    pub fn to_map(&self) -> BTreeMap<String, String> {
+        let mut params = BTreeMap::new();
+        if let Some(limit) = self.limit {
+            params.insert("limit".to_string(), limit.to_string());
+        }
+        if let Some(direction) = self.direction.as_ref() {
+            params.insert("direction".to_string(), direction.clone());
+        }
+        if let Some(cursor) = self.cursor.as_ref() {
+            params.insert("cursor".to_string(), cursor.clone());
+        }
+        params
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MutationResponse {
+    pub channel: String,
+    pub message_serial: String,
+    pub action: String,
+    pub accepted: bool,
+    pub version_serial: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetMessageResponse {
+    pub channel: String,
+    pub item: Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListMessageVersionsResponse {
+    pub channel: String,
+    pub direction: String,
+    pub limit: usize,
+    pub has_more: bool,
+    pub next_cursor: Option<String>,
+    pub items: Vec<Value>,
+}
