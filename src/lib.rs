@@ -49,8 +49,10 @@ pub type Result<T> = std::result::Result<T, SockudoError>;
 pub use auth::{SocketAuth, UserAuth};
 pub use events::{BatchEvent, Event, MessageExtras, TriggerParams, generate_idempotency_key};
 pub use history::{
-    GetMessageResponse, HistoryBounds, HistoryContinuity, HistoryItem, HistoryPage, HistoryParams,
-    ListMessageVersionsResponse, MessageVersionsParams, MutationResponse,
+    AnnotationEventsParams, AnnotationEventsResponse, DeleteAnnotationResponse, GetMessageResponse,
+    HistoryBounds, HistoryContinuity, HistoryItem, HistoryPage, HistoryParams,
+    ListMessageVersionsResponse, MessageVersionsParams, MutationResponse, PublishAnnotationRequest,
+    PublishAnnotationResponse,
 };
 pub use presence_history::{
     PresenceHistoryBounds, PresenceHistoryContinuity, PresenceHistoryItem, PresenceHistoryPage,

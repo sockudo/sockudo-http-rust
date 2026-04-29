@@ -1,8 +1,9 @@
 use crate::{
-    Channel, Config, GetMessageResponse, HistoryPage, HistoryParams, ListMessageVersionsResponse,
+    AnnotationEventsParams, AnnotationEventsResponse, Channel, Config, DeleteAnnotationResponse,
+    GetMessageResponse, HistoryPage, HistoryParams, ListMessageVersionsResponse,
     MessageVersionsParams, MutationResponse, PresenceHistoryPage, PresenceHistoryParams,
-    PresenceSnapshot, PresenceSnapshotParams, RequestError, Result, SockudoError, Token, auth,
-    events, util, webhook::Webhook,
+    PresenceSnapshot, PresenceSnapshotParams, PublishAnnotationRequest, PublishAnnotationResponse,
+    RequestError, Result, SockudoError, Token, auth, events, util, webhook::Webhook,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use events::EventData;
@@ -352,6 +353,67 @@ impl Sockudo {
         Ok(result)
     }
 
+    /// Publishes an annotation for a versioned message.
+    pub async fn publish_annotation(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        body: &PublishAnnotationRequest,
+    ) -> Result<PublishAnnotationResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/annotations",
+            channel_name, message_serial
+        );
+        let value = sonic_rs::to_value(body).map_err(SockudoError::Json)?;
+        let response = self.post(&path, &value).await?;
+        let text = response.text().await?;
+        let result =
+            sonic_rs::from_str::<PublishAnnotationResponse>(&text).map_err(SockudoError::Json)?;
+        Ok(result)
+    }
+
+    /// Deletes an annotation from a versioned message.
+    pub async fn delete_annotation(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        annotation_serial: &str,
+        socket_id: Option<&str>,
+    ) -> Result<DeleteAnnotationResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/annotations/{}",
+            channel_name, message_serial, annotation_serial
+        );
+        let mut params = BTreeMap::new();
+        if let Some(socket_id) = socket_id {
+            params.insert("socket_id".to_string(), socket_id.to_string());
+        }
+        let response = self.delete(&path, Some(&params)).await?;
+        let text = response.text().await?;
+        let result =
+            sonic_rs::from_str::<DeleteAnnotationResponse>(&text).map_err(SockudoError::Json)?;
+        Ok(result)
+    }
+
+    /// Lists raw annotation events for a versioned message.
+    pub async fn list_annotations(
+        &self,
+        channel_name: &str,
+        message_serial: &str,
+        params: Option<&AnnotationEventsParams>,
+    ) -> Result<AnnotationEventsResponse> {
+        let path = format!(
+            "/channels/{}/messages/{}/annotations",
+            channel_name, message_serial
+        );
+        let param_map = params.map(AnnotationEventsParams::to_map);
+        let response = self.get(&path, param_map.as_ref()).await?;
+        let body = response.text().await?;
+        let page =
+            sonic_rs::from_str::<AnnotationEventsResponse>(&body).map_err(SockudoError::Json)?;
+        Ok(page)
+    }
+
     /// Triggers an event on channels.
     ///
     /// When `auto_idempotency_key` is enabled (default) and no explicit idempotency key
@@ -521,6 +583,15 @@ impl Sockudo {
         params: Option<&BTreeMap<String, String>>,
     ) -> Result<Response> {
         self.send_request("GET", path, None, params, None).await
+    }
+
+    /// Makes a DELETE request
+    pub async fn delete(
+        &self,
+        path: &str,
+        params: Option<&BTreeMap<String, String>>,
+    ) -> Result<Response> {
+        self.send_request("DELETE", path, None, params, None).await
     }
 
     /// Creates a webhook from request data

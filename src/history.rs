@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sonic_rs::Value;
 use std::collections::BTreeMap;
 
@@ -128,6 +128,76 @@ pub struct GetMessageResponse {
 pub struct ListMessageVersionsResponse {
     pub channel: String,
     pub direction: String,
+    pub limit: usize,
+    pub has_more: bool,
+    pub next_cursor: Option<String>,
+    pub items: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnnotationEventsParams {
+    pub annotation_type: Option<String>,
+    pub from_serial: Option<String>,
+    pub limit: Option<u32>,
+    pub socket_id: Option<String>,
+}
+
+impl AnnotationEventsParams {
+    pub fn to_map(&self) -> BTreeMap<String, String> {
+        let mut params = BTreeMap::new();
+        if let Some(annotation_type) = self.annotation_type.as_ref() {
+            params.insert("type".to_string(), annotation_type.clone());
+        }
+        if let Some(from_serial) = self.from_serial.as_ref() {
+            params.insert("from_serial".to_string(), from_serial.clone());
+        }
+        if let Some(limit) = self.limit {
+            params.insert("limit".to_string(), limit.to_string());
+        }
+        if let Some(socket_id) = self.socket_id.as_ref() {
+            params.insert("socket_id".to_string(), socket_id.clone());
+        }
+        params
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishAnnotationRequest {
+    #[serde(rename = "type")]
+    pub annotation_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub socket_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishAnnotationResponse {
+    pub annotation_serial: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteAnnotationResponse {
+    pub annotation_serial: String,
+    pub deleted_annotation_serial: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationEventsResponse {
+    pub channel: String,
+    pub message_serial: String,
     pub limit: usize,
     pub has_more: bool,
     pub next_cursor: Option<String>,
