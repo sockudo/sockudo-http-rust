@@ -594,6 +594,37 @@ impl Sockudo {
         self.send_request("DELETE", path, None, params, None).await
     }
 
+    /// Makes a GET request with extra headers.
+    pub async fn get_with_headers(
+        &self,
+        path: &str,
+        params: Option<&BTreeMap<String, String>>,
+        extra_headers: &HashMap<String, String>,
+    ) -> Result<Response> {
+        let headers = if extra_headers.is_empty() {
+            None
+        } else {
+            Some(extra_headers)
+        };
+        self.send_request("GET", path, None, params, headers).await
+    }
+
+    /// Makes a DELETE request with extra headers.
+    pub async fn delete_with_headers(
+        &self,
+        path: &str,
+        params: Option<&BTreeMap<String, String>>,
+        extra_headers: &HashMap<String, String>,
+    ) -> Result<Response> {
+        let headers = if extra_headers.is_empty() {
+            None
+        } else {
+            Some(extra_headers)
+        };
+        self.send_request("DELETE", path, None, params, headers)
+            .await
+    }
+
     /// Creates a webhook from request data
     pub fn webhook(&self, headers: &BTreeMap<String, String>, body: &str) -> Webhook {
         Webhook::new(self.inner.config.token(), headers, body)
@@ -670,6 +701,7 @@ impl Sockudo {
             let mut request = match method {
                 "GET" => self.inner.client.get(&url),
                 "POST" => self.inner.client.post(&url),
+                "DELETE" => self.inner.client.delete(&url),
                 _ => {
                     return Err(SockudoError::Request(RequestError::new(
                         format!("Unsupported HTTP method: {}", method),
@@ -770,7 +802,17 @@ fn create_signed_query_string(
     }
 
     let query_string = util::to_ordered_array(&query_params).join("&");
-    let sign_data = format!("{}\n{}\n{}", method.to_uppercase(), path, query_string);
+    let signing_params = query_params
+        .iter()
+        .map(|(key, value)| (key.to_lowercase(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let signing_query_string = util::to_ordered_array(&signing_params).join("&");
+    let sign_data = format!(
+        "{}\n{}\n{}",
+        method.to_uppercase(),
+        path,
+        signing_query_string
+    );
     let signature = token.sign(&sign_data);
 
     format!("{}&auth_signature={}", query_string, signature)
@@ -841,6 +883,37 @@ mod tests {
         assert_eq!(map.get("end_serial"), Some(&"20".to_string()));
         assert_eq!(map.get("start_time_ms"), Some(&"1000".to_string()));
         assert_eq!(map.get("end_time_ms"), Some(&"2000".to_string()));
+    }
+
+    #[test]
+    fn test_signed_query_string_signs_lowercase_keys_but_keeps_request_keys() {
+        let token = Token::new("key", "secret");
+        let mut params = BTreeMap::new();
+        params.insert("deviceId".to_string(), "device-1".to_string());
+        params.insert("limit".to_string(), "10".to_string());
+
+        let query = create_signed_query_string(
+            &token,
+            "GET",
+            "/apps/app-id/push/channelSubscriptions",
+            None,
+            Some(&params),
+        );
+        let signature = query
+            .split('&')
+            .find_map(|part| part.strip_prefix("auth_signature="))
+            .expect("query contains auth signature");
+        let timestamp = query
+            .split('&')
+            .find_map(|part| part.strip_prefix("auth_timestamp="))
+            .expect("query contains auth timestamp");
+        let expected_to_sign = format!(
+            "GET\n/apps/app-id/push/channelSubscriptions\nauth_key=key&auth_timestamp={timestamp}&auth_version=1.0&deviceid=device-1&limit=10"
+        );
+
+        assert!(query.contains("deviceId=device-1"));
+        assert!(!query.contains("deviceid=device-1"));
+        assert_eq!(signature, token.sign(&expected_to_sign));
     }
 
     #[tokio::test]

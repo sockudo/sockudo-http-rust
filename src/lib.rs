@@ -27,6 +27,7 @@ pub mod errors;
 pub mod events;
 pub mod history;
 pub mod presence_history;
+pub mod push;
 pub mod sockudo;
 pub mod token;
 pub mod util;
@@ -58,6 +59,7 @@ pub use presence_history::{
     PresenceHistoryBounds, PresenceHistoryContinuity, PresenceHistoryItem, PresenceHistoryPage,
     PresenceHistoryParams, PresenceSnapshot, PresenceSnapshotMember, PresenceSnapshotParams,
 };
+pub use push::{PushCursorParams, PushSubscriptionParams};
 
 /// Check if encryption support is available at compile time
 pub const ENCRYPTION_AVAILABLE: bool = cfg!(feature = "encryption");
